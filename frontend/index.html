@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AuraSlash — Autonomous AI Agent SLA Escrow & Slashing Protocol</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-page: #07090e;
+            --bg-card: rgba(13, 18, 30, 0.88);
+            --bg-card-inner: rgba(0, 0, 0, 0.45);
+            --border-card: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(0, 245, 160, 0.35);
+            --accent-cyan: #00f2fe;
+            --accent-blue: #4facfe;
+            --accent-purple: #8a2be2;
+            --accent-emerald: #00f5a0;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --font-sans: 'Plus Jakarta Sans', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--bg-page);
+            color: #f8fafc;
+            font-family: var(--font-sans);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 30px 20px 60px;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        .ambient-glow {
+            position: fixed;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 1100px;
+            height: 650px;
+            background: radial-gradient(circle, rgba(0, 245, 160, 0.09) 0%, rgba(79, 172, 254, 0.06) 50%, transparent 70%);
+            filter: blur(100px);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Navbar */
+        nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 20px;
+            backdrop-filter: blur(25px);
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 20px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #ffffff 0%, var(--accent-emerald) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .network-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 14px;
+            background: rgba(0, 245, 160, 0.1);
+            border: 1px solid rgba(0, 245, 160, 0.3);
+            border-radius: 30px;
+            color: var(--accent-emerald);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-emerald);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent-emerald);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        /* Hero */
+        .hero {
+            text-align: center;
+            padding: 24px 10px 10px;
+        }
+
+        .hero h1 {
+            font-size: 34px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #ffffff 30%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            color: #94a3b8;
+            font-size: 14px;
+            max-width: 680px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        /* Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 20px;
+            padding: 24px;
+            backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 14px;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #f1f5f9;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Tabs */
+        .tabs-header {
+            display: flex;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.35);
+            padding: 4px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .tab-pane {
+            display: none;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .tab-pane.active {
+            display: flex;
+        }
+
+        /* Forms */
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #cbd5e1;
+        }
+
+        .form-input, .form-select, .form-textarea {
+            background: var(--bg-card-inner);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 10px 14px;
+            color: #f8fafc;
+            font-family: var(--font-sans);
+            font-size: 13px;
+            transition: all 0.2s;
+            width: 100%;
+        }
+
+        .form-textarea {
+            min-height: 70px;
+            resize: vertical;
+        }
+
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none;
+            border-color: var(--accent-emerald);
+            box-shadow: 0 0 10px rgba(0, 245, 160, 0.2);
+        }
+
+        /* Buttons */
+        .btn-action {
+            background: linear-gradient(135deg, var(--accent-emerald) 0%, #00c6ff 100%);
+            color: #03151e;
+            font-weight: 700;
+            font-size: 13px;
+            padding: 12px 18px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 15px rgba(0, 245, 160, 0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-action:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(0, 245, 160, 0.4);
+        }
+
+        .btn-action:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-slash {
+            background: linear-gradient(135deg, var(--accent-rose) 0%, #ff758c 100%);
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(244, 63, 94, 0.3);
+        }
+
+        /* Info Display */
+        .info-panel {
+            background: var(--bg-card-inner);
+            border-radius: 12px;
+            padding: 14px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+        }
+
+        .info-k { color: #94a3b8; }
+        .info-v { font-weight: 600; font-family: var(--font-mono); }
+
+        /* Score Matrix */
+        .score-matrix {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .score-box {
+            background: var(--bg-card-inner);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+        }
+
+        .score-value {
+            font-size: 24px;
+            font-weight: 800;
+            font-family: var(--font-mono);
+            color: var(--accent-cyan);
+        }
+
+        .score-label {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-top: 4px;
+            display: block;
+        }
+
+        /* Status Pills */
+        .status-pill {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-active { background: rgba(79, 172, 254, 0.15); color: var(--accent-blue); }
+        .status-released { background: rgba(0, 245, 160, 0.15); color: var(--accent-emerald); }
+        .status-slashed { background: rgba(244, 63, 94, 0.15); color: var(--accent-rose); }
+        .status-pending { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
+
+        /* Audit Log */
+        .audit-log {
+            background: #020408;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 12px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: #94a3b8;
+            max-height: 120px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .log-entry { line-height: 1.4; }
+        .log-time { color: #64748b; }
+        .log-ok { color: var(--accent-emerald); }
+        .log-err { color: var(--accent-rose); }
+        .log-warn { color: var(--accent-amber); }
+    </style>
+</head>
+<body>
+    <div class="ambient-glow"></div>
+
+    <div class="container">
+        <!-- Navigation -->
+        <nav>
+            <div class="brand-logo">
+                ⚡ AuraSlash
+            </div>
+            <div class="nav-controls">
+                <select class="form-select" id="networkSelect" style="width: auto; padding: 5px 10px; font-size: 12px;">
+                    <option value="testnetBradbury" selected>Bradbury Testnet (4221)</option>
+                    <option value="studionet">StudioNet (4222)</option>
+                    <option value="localnet">LocalNet (61127)</option>
+                </select>
+                <div class="network-badge" id="netBadge">
+                    <div class="pulse-dot"></div> Connected
+                </div>
+                <div class="info-v" id="accountBadge" style="font-size: 12px; color: #94a3b8;">
+                    0x...
+                </div>
+            </div>
+        </nav>
+
+        <!-- Hero -->
+        <div class="hero">
+            <h1>Autonomous AI Agent SLA Escrow & Slashing</h1>
+            <p>Decentralized accountability for Web3 AI agents, DeFi keeper bots, and algorithmic delegates. Multi-validator neural consensus adjudicates live performance telemetry and deterministically slashes collateral bonds upon SLA breaches.</p>
+        </div>
+
+        <!-- Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Left Card: Protocol Actions -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">🤖 Agent Service Operations</div>
+                    <span class="status-pill status-active" id="opStatusPill">Ready</span>
+                </div>
+
+                <div class="tabs-header">
+                    <button class="tab-btn active" onclick="switchTab('tab-create')">1. Create SLA Escrow</button>
+                    <button class="tab-btn" onclick="switchTab('tab-stake')">2. Stake Collateral</button>
+                    <button class="tab-btn" onclick="switchTab('tab-adjudicate')">3. Adjudicate SLA</button>
+                </div>
+
+                <!-- Tab 1: Create Agreement -->
+                <div class="tab-pane active" id="tab-create">
+                    <div class="form-group">
+                        <label class="form-label">Contract Address</label>
+                        <input type="text" class="form-input" id="contractAddressInput" value="0xA7f9c2448B66B1b1d7d0823FBEB5A967732d888">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Agent Operator Address</label>
+                        <input type="text" class="form-input" id="createOperatorAddr" value="0x70997970C51812dc3A010C7d01b50e0d17dc79C8">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Agent Service Type</label>
+                        <select class="form-select" id="createServiceType">
+                            <option value="DEFI_KEEPER_BOT" selected>DeFi Liquidity Keeper (Rebalancing & Arbitrage)</option>
+                            <option value="SECURITY_AUDITOR_AGENT">AI Security Sentinel & Honeypot Radar</option>
+                            <option value="MARKET_MAKER">Automated Market Maker (Spread & Slippage Bound)</option>
+                            <option value="PROMPT_TASK_RUNNER">Autonomous Code Generator & Task Runner</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">SLA Specification & Bound Constraints</label>
+                        <textarea class="form-textarea" id="createSlaSpec">Maintain pool rebalancing with max drawdown < 3.0%, latency < 30s, and 0 unauthorized token approval calls.</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Committed Telemetry Evidence Source (Whitelisted)</label>
+                        <input type="text" class="form-input" id="createEvidenceUrl" value="https://api.dexscreener.com/latest/dex/pairs/base/0x3333333333333333333333333333333333333333">
+                        <small style="color: var(--accent-cyan); font-size: 11px;">Whitelisted: api.dexscreener.com, api.github.com, api.basescan.org, api.llama.fi</small>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div class="form-group">
+                            <label class="form-label">Escrow Service Fee (GEN)</label>
+                            <input type="number" step="0.1" class="form-input" id="createEscrowFee" value="50.0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Required Agent Collateral (GEN)</label>
+                            <input type="number" step="0.1" class="form-input" id="createCollateral" value="20.0">
+                        </div>
+                    </div>
+                    <button class="btn-action" id="btnCreateAgreement">
+                        🔒 Lock Escrow & Create Agreement
+                    </button>
+                </div>
+
+                <!-- Tab 2: Stake Collateral -->
+                <div class="tab-pane" id="tab-stake">
+                    <div class="form-group">
+                        <label class="form-label">Agreement ID</label>
+                        <input type="number" class="form-input" id="stakeAgreementId" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Collateral Stake Deposit (GEN)</label>
+                        <input type="number" step="0.1" class="form-input" id="stakeAmount" value="20.0">
+                        <small style="color: #94a3b8; font-size: 11px;">Collateral is locked on-chain and slashed if SLA constraints are breached.</small>
+                    </div>
+                    <button class="btn-action" id="btnStakeCollateral">
+                        🛡️ Deposit Collateral & Activate Agreement
+                    </button>
+                </div>
+
+                <!-- Tab 3: Adjudicate SLA -->
+                <div class="tab-pane" id="tab-adjudicate">
+                    <div class="form-group">
+                        <label class="form-label">Agreement ID</label>
+                        <input type="number" class="form-input" id="adjAgreementId" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Submission & Performance Notes</label>
+                        <textarea class="form-textarea" id="adjNotes">Agent completed 7-day autonomous cycle with 142 rebalances and 1.2% maximum drawdown.</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Submitted Evidence URL (Must match committed source)</label>
+                        <input type="text" class="form-input" id="adjEvidenceUrl" value="https://api.dexscreener.com/latest/dex/pairs/base/0x3333333333333333333333333333333333333333">
+                    </div>
+                    <button class="btn-action" id="btnAdjudicateSla">
+                        ⚖️ Trigger Multi-Validator AI SLA Adjudication
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right Card: Live Contract State -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📊 Live On-Chain Agreement State</div>
+                    <button class="btn-action" id="btnRefreshState" style="padding: 6px 12px; font-size: 12px; background: rgba(255,255,255,0.08); color: #fff;">
+                        🔄 Refresh
+                    </button>
+                </div>
+
+                <div class="score-matrix">
+                    <div class="score-box">
+                        <span class="score-value" id="dispConfidence">--</span>
+                        <span class="score-label">Consensus Confidence</span>
+                    </div>
+                    <div class="score-box">
+                        <span class="score-value" id="dispTotalLocked" style="color: var(--accent-emerald);">-- GEN</span>
+                        <span class="score-label">Total Locked Funds</span>
+                    </div>
+                </div>
+
+                <div class="info-panel">
+                    <div class="info-row">
+                        <span class="info-k">Agreement Status:</span>
+                        <span class="status-pill status-pending" id="dispStatus">AWAITING QUERY</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-k">Adjudication Verdict:</span>
+                        <span class="info-v" id="dispVerdict" style="color: var(--accent-cyan);">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-k">Escrow Fee / Collateral:</span>
+                        <span class="info-v" id="dispFundBreakdown">-- / --</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-k">Coverage Dates:</span>
+                        <span class="info-v" id="dispDates" style="font-size: 11px;">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-k">Latest Transaction:</span>
+                        <span class="info-v" id="dispLatestTx" style="font-size: 11px;">None</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Neural Validator Consensus Rationale</label>
+                    <textarea class="form-textarea" id="dispRationale" readonly style="min-height: 55px;">Querying agreement storage on GenLayer...</textarea>
+                </div>
+
+                <div class="audit-log" id="auditLog">
+                    <div class="log-entry"><span class="log-time">[System]</span> Initializing AuraSlash client...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script -->
+    <script type="module">
+        import { createClient, createAccount, generatePrivateKey } from 'https://esm.sh/genlayer-js@1.2.0';
+        import { testnetBradbury, studionet, localnet } from 'https://esm.sh/genlayer-js@1.2.0/chains';
+
+        let client = null;
+        let currentAccount = null;
+
+        function addLog(msg, type = 'info') {
+            const log = document.getElementById('auditLog');
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            const time = new Date().toLocaleTimeString();
+            div.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-${type}">${msg}</span>`;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function getSelectedChain() {
+            const val = document.getElementById('networkSelect').value;
+            if (val === 'studionet') return studionet;
+            if (val === 'localnet') return localnet;
+            return testnetBradbury;
+        }
+
+        function initClient() {
+            try {
+                const chain = getSelectedChain();
+                currentAccount = createAccount(generatePrivateKey());
+                client = createClient({
+                    chain: chain,
+                    account: currentAccount,
+                });
+
+                const addr = currentAccount.address;
+                const shortAddr = addr.slice(0, 6) + '...' + addr.slice(-4);
+                document.getElementById('accountBadge').innerText = shortAddr;
+                document.getElementById('netBadge').innerHTML = `<div class="pulse-dot"></div> ${chain.name}`;
+
+                addLog(`Connected: ${addr} on ${chain.name}`, 'ok');
+                refreshContractState();
+            } catch (err) {
+                addLog(`Client Init Error: ${err.message}`, 'err');
+            }
+        }
+
+        window.switchTab = function(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+        };
+
+        // 1. Create Agreement
+        document.getElementById('btnCreateAgreement').addEventListener('click', async () => {
+            const btn = document.getElementById('btnCreateAgreement');
+            try {
+                btn.disabled = true;
+                btn.innerText = '⏳ Locking Escrow & Creating Agreement...';
+
+                const contractAddr = document.getElementById('contractAddressInput').value.trim();
+                const operator = document.getElementById('createOperatorAddr').value.trim();
+                const serviceType = document.getElementById('createServiceType').value;
+                const slaSpec = document.getElementById('createSlaSpec').value.trim();
+                const evidenceUrl = document.getElementById('createEvidenceUrl').value.trim();
+                const escrowFee = parseFloat(document.getElementById('createEscrowFee').value);
+                const collateral = parseFloat(document.getElementById('createCollateral').value);
+                
+                const escrowWei = BigInt(Math.floor(escrowFee * 1e18));
+                const collateralWei = BigInt(Math.floor(collateral * 1e18));
+                const durationSecs = BigInt(86400 * 7); // 7 days
+
+                addLog(`Creating ${serviceType} agreement for ${operator}...`, 'info');
+                addLog(`Committed evidence URL: ${evidenceUrl}`, 'info');
+
+                const txHash = await client.writeContract({
+                    address: contractAddr,
+                    functionName: 'create_agreement',
+                    args: [operator, serviceType, slaSpec, evidenceUrl, collateralWei, durationSecs],
+                    value: escrowWei,
+                });
+
+                addLog(`Agreement Tx: ${txHash}`, 'ok');
+                updateTxDisplay(txHash);
+
+                await client.waitForTransactionReceipt({ hash: txHash });
+                addLog('Agreement created and escrow locked successfully!', 'ok');
+
+                await refreshContractState();
+            } catch (err) {
+                addLog(`Create Agreement Error: ${err.message}`, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '🔒 Lock Escrow & Create Agreement';
+            }
+        });
+
+        // 2. Stake Collateral
+        document.getElementById('btnStakeCollateral').addEventListener('click', async () => {
+            const btn = document.getElementById('btnStakeCollateral');
+            try {
+                btn.disabled = true;
+                btn.innerText = '⏳ Depositing Collateral Stake...';
+
+                const contractAddr = document.getElementById('contractAddressInput').value.trim();
+                const agrId = BigInt(document.getElementById('stakeAgreementId').value);
+                const amount = parseFloat(document.getElementById('stakeAmount').value);
+                const stakeWei = BigInt(Math.floor(amount * 1e18));
+
+                addLog(`Staking ${amount} GEN collateral for Agreement #${agrId}...`, 'info');
+
+                const txHash = await client.writeContract({
+                    address: contractAddr,
+                    functionName: 'stake_and_activate_agreement',
+                    args: [agrId],
+                    value: stakeWei,
+                });
+
+                addLog(`Staking Tx: ${txHash}`, 'ok');
+                updateTxDisplay(txHash);
+
+                await client.waitForTransactionReceipt({ hash: txHash });
+                addLog('Collateral deposited and agreement activated!', 'ok');
+
+                await refreshContractState();
+            } catch (err) {
+                addLog(`Stake Collateral Error: ${err.message}`, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '🛡️ Deposit Collateral & Activate Agreement';
+            }
+        });
+
+        // 3. Adjudicate SLA
+        document.getElementById('btnAdjudicateSla').addEventListener('click', async () => {
+            const btn = document.getElementById('btnAdjudicateSla');
+            try {
+                btn.disabled = true;
+                btn.innerText = '⏳ Validators Fetching Live Telemetry...';
+
+                const contractAddr = document.getElementById('contractAddressInput').value.trim();
+                const agrId = BigInt(document.getElementById('adjAgreementId').value);
+                const notes = document.getElementById('adjNotes').value.trim();
+                const evidenceUrl = document.getElementById('adjEvidenceUrl').value.trim();
+
+                addLog(`Triggering SLA consensus for Agreement #${agrId}...`, 'info');
+                addLog('Validators fetching committed telemetry and evaluating SLA boundaries...', 'info');
+
+                const txHash = await client.writeContract({
+                    address: contractAddr,
+                    functionName: 'adjudicate_agent_sla',
+                    args: [agrId, notes, evidenceUrl],
+                });
+
+                addLog(`Adjudication Tx: ${txHash}`, 'ok');
+                updateTxDisplay(txHash);
+
+                await client.waitForTransactionReceipt({ hash: txHash });
+                addLog('Consensus reached and settlement executed on-chain!', 'ok');
+
+                await refreshContractState();
+            } catch (err) {
+                addLog(`Adjudication Error: ${err.message}`, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '⚖️ Trigger Multi-Validator AI SLA Adjudication';
+            }
+        });
+
+        // 4. Dynamic Contract State Reading
+        async function refreshContractState() {
+            try {
+                const contractAddr = document.getElementById('contractAddressInput').value.trim();
+                const agrId = BigInt(document.getElementById('stakeAgreementId').value || 0);
+
+                const a = await client.readContract({
+                    address: contractAddr,
+                    functionName: 'get_agreement',
+                    args: [agrId],
+                });
+
+                if (a) {
+                    const escrow = (Number(a.escrow_fee) / 1e18).toFixed(2);
+                    const col = (Number(a.collateral_deposited) / 1e18).toFixed(2);
+                    const total = (Number(BigInt(a.escrow_fee) + BigInt(a.collateral_deposited)) / 1e18).toFixed(2);
+
+                    document.getElementById('dispTotalLocked').innerText = `${total} GEN`;
+                    document.getElementById('dispFundBreakdown').innerText = `${escrow} GEN / ${col} GEN`;
+                    document.getElementById('dispConfidence').innerText = `${a.adjudication_confidence}%`;
+                    document.getElementById('dispVerdict').innerText = a.adjudication_verdict || 'NONE';
+                    document.getElementById('dispRationale').value = a.adjudication_summary || 'No adjudication recorded yet.';
+
+                    const start = new Date(Number(a.start_timestamp) * 1000).toLocaleDateString();
+                    const end = new Date(Number(a.end_timestamp) * 1000).toLocaleDateString();
+                    document.getElementById('dispDates').innerText = `${start} → ${end}`;
+
+                    const pill = document.getElementById('dispStatus');
+                    pill.innerText = a.status;
+                    if (a.status === 'RELEASED') pill.className = 'status-pill status-released';
+                    else if (a.status === 'SLASHED') pill.className = 'status-pill status-slashed';
+                    else if (a.status === 'ACTIVE') pill.className = 'status-pill status-active';
+                    else pill.className = 'status-pill status-pending';
+
+                    addLog(`State: Agr #${a.agreement_id} Status=${a.status} Verdict=${a.adjudication_verdict}`, 'ok');
+                }
+            } catch (err) {
+                addLog(`Read Contract State: ${err.message}`, 'warn');
+            }
+        }
+
+        function updateTxDisplay(hash) {
+            const shortHash = hash.slice(0, 10) + '...' + hash.slice(-8);
+            const chain = getSelectedChain();
+            const explorerUrl = chain.blockExplorers?.default?.url ? `${chain.blockExplorers.default.url}tx/${hash}` : `https://explorer-bradbury.genlayer.com/tx/${hash}`;
+            document.getElementById('dispLatestTx').innerHTML = `<a href="${explorerUrl}" target="_blank" style="color: var(--accent-emerald); text-decoration: none;">${shortHash} ↗</a>`;
+        }
+
+        document.getElementById('btnRefreshState').addEventListener('click', refreshContractState);
+        document.getElementById('networkSelect').addEventListener('change', initClient);
+
+        initClient();
+    </script>
+</body>
+</html>

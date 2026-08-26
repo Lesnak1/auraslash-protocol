@@ -1,0 +1,16 @@
+# GenLayer Testing Suite Network Configuration
+networks:
+  localnet:
+    rpc_url: "http://localhost:4000/api"
+    chain_id: 61127
+  studionet:
+    rpc_url: "https://studio.genlayer.com/api"
+    chain_id: 61999
+  bradbury:
+    rpc_url: "https://rpc-bradbury.genlayer.com"
+    chain_id: 4221
+    currency_symbol: "GEN"
+
+default_network: "studionet"
+contracts_dir: "contracts"
+tests_dir: "tests"
