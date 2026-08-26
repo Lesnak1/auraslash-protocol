@@ -431,11 +431,11 @@
                 <div class="tab-pane active" id="tab-create">
                     <div class="form-group">
                         <label class="form-label">Contract Address</label>
-                        <input type="text" class="form-input" id="contractAddressInput" value="0xA7f9c2448B66B1b1d7d0823FBEB5A967732d888">
+                        <input type="text" class="form-input" id="contractAddressInput" value="0x71c563d420188047915512702759902641203001">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Agent Operator Address</label>
-                        <input type="text" class="form-input" id="createOperatorAddr" value="0x70997970C51812dc3A010C7d01b50e0d17dc79C8">
+                        <input type="text" class="form-input" id="createOperatorAddr" value="0x70997970c51812dc3a010c7d01b50e0d17dc79c8">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Agent Service Type</label>
@@ -622,8 +622,8 @@
                 btn.disabled = true;
                 btn.innerText = '⏳ Locking Escrow & Creating Agreement...';
 
-                const contractAddr = document.getElementById('contractAddressInput').value.trim();
-                const operator = document.getElementById('createOperatorAddr').value.trim();
+                const contractAddr = document.getElementById('contractAddressInput').value.trim().toLowerCase();
+                const operator = document.getElementById('createOperatorAddr').value.trim().toLowerCase();
                 const serviceType = document.getElementById('createServiceType').value;
                 const slaSpec = document.getElementById('createSlaSpec').value.trim();
                 const evidenceUrl = document.getElementById('createEvidenceUrl').value.trim();

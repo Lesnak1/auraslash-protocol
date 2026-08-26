@@ -3,16 +3,9 @@ import { testnetBradbury, studionet, localnet } from 'genlayer-js/chains';
 
 /**
  * AuraSlash GenLayer Client Integration SDK
- * Complete TypeScript bindings for all intelligent contract methods on GenLayer:
- * - create_agreement (Client deposits service escrow fee and defines SLA constraints)
- * - stake_and_activate_agreement (Agent deposits collateral bond to activate agreement)
- * - adjudicate_agent_sla (Triggers multi-validator neural consensus over live authority telemetry)
- * - release_expired_unclaimed_agreement (Unlocks expired agreements fail-closed)
- * - get_agreement (Read-only view of agreement state, SLA bounds, and consensus verdict)
- * - get_protocol_stats (Read-only view of active agreements and locked liabilities)
  */
 
-export const DEFAULT_AURASLASH_ADDRESS: Address = '0xA7f9c2448B66B1b1d7d0823FBEB5A967732d888';
+export const DEFAULT_AURASLASH_ADDRESS: Address = '0x71c563d420188047915512702759902641203001';
 
 export interface AgreementState {
   agreement_id: number;
@@ -66,9 +59,6 @@ export function getGenLayerClient(
   });
 }
 
-/**
- * Creates an AI Agent Service Agreement and deposits service escrow.
- */
 export async function createAgreement(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address,
@@ -84,10 +74,10 @@ export async function createAgreement(
   const collateralWei = BigInt(Math.floor(Number(requiredCollateralGen) * 1e18));
 
   const txHash = await client.writeContract({
-    address: contractAddress,
+    address: contractAddress.toLowerCase() as Address,
     functionName: 'create_agreement',
     args: [
-      agentOperator,
+      agentOperator.toLowerCase() as Address,
       serviceType,
       slaSpecification,
       committedEvidenceUrl,
@@ -100,9 +90,6 @@ export async function createAgreement(
   return txHash as `0x${string}`;
 }
 
-/**
- * Agent operator deposits collateral bond to activate agreement.
- */
 export async function stakeAndActivateAgreement(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address,
@@ -112,7 +99,7 @@ export async function stakeAndActivateAgreement(
   const stakeWei = BigInt(Math.floor(Number(collateralGenAmount) * 1e18));
 
   const txHash = await client.writeContract({
-    address: contractAddress,
+    address: contractAddress.toLowerCase() as Address,
     functionName: 'stake_and_activate_agreement',
     args: [BigInt(agreementId)],
     value: stakeWei,
@@ -121,9 +108,6 @@ export async function stakeAndActivateAgreement(
   return txHash as `0x${string}`;
 }
 
-/**
- * Evaluates live telemetry evidence and triggers multi-validator neural consensus adjudication.
- */
 export async function adjudicateAgentSla(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address,
@@ -132,7 +116,7 @@ export async function adjudicateAgentSla(
   submittedEvidenceUrl: string = ''
 ): Promise<`0x${string}`> {
   const txHash = await client.writeContract({
-    address: contractAddress,
+    address: contractAddress.toLowerCase() as Address,
     functionName: 'adjudicate_agent_sla',
     args: [BigInt(agreementId), performanceNotes, submittedEvidenceUrl],
     value: BigInt(0),
@@ -141,16 +125,13 @@ export async function adjudicateAgentSla(
   return txHash as `0x${string}`;
 }
 
-/**
- * Releases expired agreement fail-closed.
- */
 export async function releaseExpiredAgreement(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address,
   agreementId: bigint | number
 ): Promise<`0x${string}`> {
   const txHash = await client.writeContract({
-    address: contractAddress,
+    address: contractAddress.toLowerCase() as Address,
     functionName: 'release_expired_unclaimed_agreement',
     args: [BigInt(agreementId)],
     value: BigInt(0),
@@ -159,16 +140,13 @@ export async function releaseExpiredAgreement(
   return txHash as `0x${string}`;
 }
 
-/**
- * Queries agreement details from contract storage.
- */
 export async function getAgreement(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address,
   agreementId: bigint | number
 ): Promise<AgreementState> {
   const data = await client.readContract({
-    address: contractAddress,
+    address: contractAddress.toLowerCase() as Address,
     functionName: 'get_agreement',
     args: [BigInt(agreementId)],
   });
@@ -176,28 +154,15 @@ export async function getAgreement(
   return data as unknown as AgreementState;
 }
 
-/**
- * Queries protocol-wide statistics.
- */
 export async function getProtocolStats(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address
 ): Promise<ProtocolStats> {
   const data = await client.readContract({
-    address: contractAddress,
+    address: contractAddress.toLowerCase() as Address,
     functionName: 'get_protocol_stats',
     args: [],
   });
 
   return data as unknown as ProtocolStats;
-}
-
-/**
- * Waits for transaction finality on GenLayer.
- */
-export async function waitForTransactionReceipt(
-  client: ReturnType<typeof getGenLayerClient>,
-  hash: `0x${string}`
-) {
-  return await client.waitForTransactionReceipt({ hash });
 }
