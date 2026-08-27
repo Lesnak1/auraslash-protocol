@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![GenLayer Network](https://img.shields.io/badge/GenLayer-Intelligent%20Contract-00f2fe.svg)](https://docs.genlayer.com)
 [![GenVM Python](https://img.shields.io/badge/GenVM-py--genlayer%20v0.2.7-8a2be2.svg)](https://github.com/genlayerlabs)
-[![Tests: Direct Mode](https://img.shields.io/badge/Tests-Direct%20VM%20Passing%20(9%2F9)-00f5a0.svg)](#-test-suite--verification)
+[![Tests: Direct Mode](https://img.shields.io/badge/Tests-Direct%20VM%20Passing%20(11%2F11)-00f5a0.svg)](#-test-suite--verification)
 
 **AuraSlash** is a decentralized, intelligent SLA escrow and behavioral slashing protocol built natively on GenLayer. It solves the existential accountability crisis facing autonomous Web3 AI agents, keeper bots, and algorithmic delegates by conditioning service fee payouts and collateral slashing on **decentralized multi-validator neural consensus over live authority telemetry** (DexScreener DEX trades, GitHub task deliveries, BaseScan/Etherscan contract calls, and DefiLlama analytics).
 
@@ -20,8 +20,9 @@ As DAOs and protocols increasingly hire off-chain AI agents to manage liquidity 
 GenLayer provides the only environment capable of trustlessly evaluating off-chain AI agent behavior:
 1. **Live Authority Telemetry Grounding (`gl.nondet.web.get`)**: Validators independently retrieve real-time execution proof from whitelisted endpoints (DexScreener, GitHub API, BaseScan, DefiLlama).
 2. **Multi-Validator Neural Consensus (`gl.vm.run_nondet_unsafe`)**: Validators analyze telemetry against contracted SLA bounds under the **Equivalence Principle** with strict canonical action decisions.
-3. **Deterministic Slashing & Exact Payout Preservation**: Slashes the agent's collateral bond only upon verified affirmative proof of breach (confidence >= 80) or awards the escrow fee upon verified fulfillment with zero financial drift.
-4. **404 & Network Failure Retry Protection**: HTTP 404s, missing endpoints, or server errors are strictly treated as retry outcomes (`EXTEND_GRACE_PERIOD`), NEVER as grounds for slashing.
+3. **Observation Window Completion Invariant**: Irreversible escrow fee payout (`RELEASE_ESCROW`) cannot occur before the agreed observation window has fully elapsed (`current_ts >= end_timestamp`).
+4. **Constrained Early Slashing**: Catastrophic risk breaches / circuit breaker triggers allow immediate emergency slashing (`SLASH_COLLATERAL`, conf >= 80) even mid-window to protect client funds.
+5. **404 & Network Failure Retry Protection**: HTTP 404s, missing endpoints, or server errors are strictly treated as retry outcomes (`EXTEND_GRACE_PERIOD`), NEVER as grounds for slashing.
 
 ---
 
@@ -31,9 +32,9 @@ To eliminate numeric drift and ambiguous threshold crossings, AuraSlash enforces
 
 | Canonical Action Decision | Validation Criteria | On-Chain Execution |
 |---|---|---|
-| **`RELEASE_ESCROW`** | `sla_verified == True` AND `confidence_score >= 80` | Releases escrow fee + collateral refund to Agent Operator (`emit_transfer(escrow + collateral)`) |
-| **`SLASH_COLLATERAL`** | Verified affirmative SLA breach / risk violation AND `confidence_score >= 80` | Slashes agent collateral + refunds escrow fee to Client (`emit_transfer(escrow + collateral)`) |
-| **`EXTEND_GRACE_PERIOD`** | Deliverable in progress, HTTP 404s, network errors, or sub-threshold confidence (`confidence < 80`) | Agreement remains active for retry; zero funds released |
+| **`RELEASE_ESCROW`** | `sla_verified == True` AND `confidence_score >= 80` AND `current_ts >= end_timestamp` | Releases escrow fee + collateral refund to Agent Operator (`emit_transfer(escrow + collateral)`) |
+| **`SLASH_COLLATERAL`** | Verified affirmative SLA breach / catastrophic risk violation AND `confidence_score >= 80` | Slashes agent collateral + refunds escrow fee to Client (`emit_transfer(escrow + collateral)`) |
+| **`EXTEND_GRACE_PERIOD`** | Mid-term healthy status, 404s, network errors, or sub-threshold confidence (`confidence < 80`) | Agreement remains active for retry / full term; zero funds released |
 
 ### Key Security & Solvency Invariants:
 1. **🗓️ Fail-Closed Runtime Block Timing**: Timestamps are strictly derived from enforceable GenLayer runtime block state (`_get_runtime_timestamp()`). Unavailable timestamps strictly fail closed.
@@ -41,6 +42,43 @@ To eliminate numeric drift and ambiguous threshold crossings, AuraSlash enforces
 3. **🔒 Committed Source Adjudication Binding**: Adjudication is strictly bound to the target evidence URL committed on-chain during agreement creation. Callers cannot substitute uncommitted URLs.
 4. **📡 Fail-Closed HTTP 200-299 Status Validation**: Telemetry responses missing explicit status or returning non-2xx status codes fail closed immediately.
 5. **🏦 100% Solvency Invariant**: Tracks total active liabilities (`total_active_liabilities`) and prevents over-allocation.
+
+---
+
+## 👥 Verified Two-Account Signing & Funding Workflow
+
+AuraSlash natively separates the **Client (Creator / Funder)** and **Agent Operator (Staker / Bot)** signing paths:
+
+```typescript
+import { getGenLayerClient, createAgreement, stakeAndActivateAgreement, adjudicateAgentSla, DEMO_CLIENT_CONFIG, DEMO_OPERATOR_CONFIG } from './frontend/client';
+
+// Client Account (Alice: 0x7099...79C8)
+const clientSigner = getGenLayerClient(DEMO_CLIENT_CONFIG.privateKey);
+
+// Operator Account (Bob: 0x3C44...93BC)
+const operatorSigner = getGenLayerClient(DEMO_OPERATOR_CONFIG.privateKey);
+
+const contractAddress = '0x71c563d420188047915512702759902641203001';
+
+// 1. Client locks 50 GEN escrow fee and creates Agreement
+const tx1 = await createAgreement(
+  clientSigner,
+  contractAddress,
+  DEMO_OPERATOR_CONFIG.address, // Designates Bob as Operator
+  'DEFI_KEEPER_BOT',
+  'Maintain max drawdown < 3%, latency < 30s',
+  'https://api.dexscreener.com/latest/dex/pairs/base/0x3333333333333333333333333333333333333333',
+  20, // Required collateral
+  86400 * 7, // 7-day observation window
+  50 // Escrow fee deposit
+);
+
+// 2. Operator deposits 20 GEN collateral bond to activate agreement
+const tx2 = await stakeAndActivateAgreement(operatorSigner, contractAddress, 0, 20);
+
+// 3. Trigger SLA Adjudication on committed telemetry
+const tx3 = await adjudicateAgentSla(clientSigner, contractAddress, 0, 'Full 7-day rebalancing cycle complete', 'https://api.dexscreener.com/latest/dex/pairs/base/0x3333333333333333333333333333333333333333');
+```
 
 ---
 
@@ -69,12 +107,12 @@ sequenceDiagram
         Validators->>Validators: Equivalence Principle Check (Canonical Action Match & Non-Crossing Threshold)
     end
 
-    alt SLA Verified (Confidence >= 80)
+    alt SLA Verified & Full Observation Window Elapsed (Confidence >= 80)
         AuraSlash->>Agent: emit_transfer(70 GEN) [Escrow Fee + Collateral Refund]
-    else Severe Risk Breach / Exploit
+    else Severe Risk Breach / Exploit (Emergency Early Slashing)
         AuraSlash->>Client: emit_transfer(70 GEN) [Escrow Refund + Slashed Collateral Restitution]
-    else Incomplete Telemetry
-        AuraSlash->>AuraSlash: status = ACTIVE (Grace period extended for retry)
+    else Mid-Term Healthy or Incomplete Telemetry
+        AuraSlash->>AuraSlash: status = ACTIVE (Grace period extended for full term)
     end
 ```
 
@@ -87,63 +125,21 @@ auraslash-protocol/
 ├── contracts/
 │   └── auraslash.py           # Core Intelligent Contract on GenVM
 ├── frontend/
-│   ├── index.html             # Glassmorphic DApp UI with live genlayer-js client
-│   └── client.ts              # TypeScript GenLayer client integration SDK
+│   ├── index.html             # Glassmorphic DApp UI with two-account persona switcher
+│   ├── client.ts              # TypeScript GenLayer client integration SDK
+│   └── genlayer-js.d.ts       # Local TypeScript type declarations
 ├── tests/
 │   ├── direct/
-│   │   └── test_auraslash.py  # 100% Passing in-memory direct VM test suite (7 scenarios)
+│   │   ├── test_auraslash.py       # 10 comprehensive unit tests (Fail-closed, 404 retry, confidence floor)
+│   │   └── test_two_account_flow.py # End-to-end multi-account signing & lifecycle test
 │   └── integration/
 │       └── test_auraslash_integration.py # StudioNet / RPC deployment integration tests
+├── tsconfig.json              # TypeScript configuration
 ├── pytest.ini                 # Pytest direct suite collection configuration
 ├── gltest.config.yaml         # GenLayer Testnet/StudioNet network configuration
 ├── package.json               # genlayer-js & development dependencies
 ├── requirements.txt           # Python dependencies (genlayer, pytest)
 └── README.md                  # Complete architectural & technical documentation
-```
-
----
-
-## 💻 Frontend & GenLayer Client Integration
-
-The included interactive DApp (`frontend/index.html`) is connected to the real **`genlayer-js@1.2.0`** client, enabling full on-chain lifecycle management:
-
-1. **Wallet / Account Management**: Auto-generates testnet keypairs or imports custom private keys.
-2. **Multi-Network Support**: Switch seamlessly between **GenLayer Bradbury Testnet (4221)**, **StudioNet (4222)**, and **LocalNet**.
-3. **SLA Escrow Deployment**: Create agreements, define granular SLA limits, and commit to authority endpoints (`create_agreement`).
-4. **Agent Staking**: Deposit collateral bonds to activate agreements (`stake_and_activate_agreement`).
-5. **Live Neural Adjudication**: Trigger multi-validator consensus over live authority telemetry (`adjudicate_agent_sla`).
-6. **Live Contract State Queries**: Dynamically reads `get_agreement` and `get_protocol_stats` with explorer links.
-
-### TypeScript Client Example (`frontend/client.ts`):
-
-```typescript
-import { getGenLayerClient, createAgreement, stakeAndActivateAgreement, adjudicateAgentSla, getAgreement } from './frontend/client';
-
-const client = getGenLayerClient('0xYourPrivateKey...');
-const contractAddress = '0xA7f9c2448B66B1b1d7d0823FBEB5A967732d888';
-
-// 1. Client creates 7-day DeFi Keeper Agreement (50 GEN escrow, 20 GEN required collateral)
-const tx1 = await createAgreement(
-  client,
-  contractAddress,
-  '0xAgentOperator...',
-  'DEFI_KEEPER_BOT',
-  'Max drawdown < 3%, latency < 30s',
-  'https://api.dexscreener.com/latest/dex/pairs/base/0x333...',
-  20, // Required collateral
-  86400 * 7,
-  50 // Escrow deposit
-);
-
-// 2. Agent Operator stakes 20 GEN collateral to activate agreement
-const tx2 = await stakeAndActivateAgreement(client, contractAddress, 0, 20);
-
-// 3. Trigger SLA Adjudication on committed telemetry
-const tx3 = await adjudicateAgentSla(client, contractAddress, 0, 'Completed 7-day rebalancing cycle', 'https://api.dexscreener.com/latest/dex/pairs/base/0x333...');
-
-// 4. Query Final On-Chain State
-const agr = await getAgreement(client, contractAddress, 0);
-console.log(`Status: ${agr.status}, Verdict: ${agr.adjudication_verdict}, Confidence: ${agr.adjudication_confidence}%`);
 ```
 
 ---
@@ -158,24 +154,18 @@ pytest
 pytest tests/direct/ -v
 ```
 
-### Verified Test Scenarios (7 Tests):
-1. `test_sla_fulfillment_and_escrow_release`:
-   - Client creates agreement with 50 GEN escrow. Agent deposits 20 GEN collateral.
-   - Live telemetry proves 1.2% max drawdown (<3% limit).
-   - Consensus on `RELEASE_ESCROW` (conf: 95) -> 70 GEN released to Agent.
-2. `test_sla_breach_slashing_and_client_restitution` (Adversarial):
-   - Agent breaches risk limits (8.4% drawdown).
-   - Consensus on `SLASH_COLLATERAL` (conf: 98) -> 70 GEN awarded to Client.
-3. `test_incomplete_sla_grace_period_extension`:
-   - Sub-threshold progress triggers `EXTEND_GRACE_PERIOD` without releasing funds.
-4. `test_mismatched_evidence_url_reverts` (Adversarial):
-   - Reverts when caller attempts to submit an uncommitted URL during adjudication.
-5. `test_untrusted_domain_spoofing_reverts` (Adversarial):
-   - Rejects hostname substring spoofing attempts (e.g. `dexscreener.com.attacker.com`).
-6. `test_unauthorized_early_release_reverts` (Fail-Closed):
-   - Verifies active agreements cannot be released before expiration.
-7. `test_non_operator_stake_reverts` (Access Control):
-   - Enforces that only the designated operator can deposit collateral.
+### Verified Test Scenarios (11/11 Tests Passing):
+1. `test_sla_fulfillment_and_escrow_release`: Full lifecycle across full observation window -> 70 GEN released to Agent.
+2. `test_premature_release_before_observation_window_complete_is_held_as_active`: Mid-window evaluation is held as `ACTIVE` with 0 funds moved.
+3. `test_emergency_early_slashing_on_catastrophic_breach`: Legitimate early settlement constrained to catastrophic breach -> emergency slash protects client capital.
+4. `test_repeated_404_responses_leave_agreement_active_and_move_no_funds`: 404 responses are strictly retry outcomes with 0 funds moved.
+5. `test_sub_threshold_confidence_cannot_slash_and_moves_no_funds`: Sub-threshold confidence (<80%) cannot slash collateral.
+6. `test_sla_breach_slashing_and_client_restitution_with_high_confidence`: High confidence breach slashes collateral to client.
+7. `test_incomplete_sla_grace_period_extension`: Sub-threshold progress triggers `EXTEND_GRACE_PERIOD`.
+8. `test_mismatched_evidence_url_reverts`: Reverts when caller attempts to submit an uncommitted URL.
+9. `test_untrusted_domain_spoofing_reverts`: Rejects hostname substring spoofing attempts.
+10. `test_unauthorized_early_release_reverts`: Verifies active agreements cannot be released before expiration.
+11. `test_two_account_signing_and_lifecycle_flow`: Verifies end-to-end multi-account execution between Alice and Bob.
 
 ---
 

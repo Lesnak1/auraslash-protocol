@@ -7,6 +7,19 @@ import { testnetBradbury, studionet, localnet } from 'genlayer-js/chains';
 
 export const DEFAULT_AURASLASH_ADDRESS: Address = '0x71c563d420188047915512702759902641203001';
 
+// Pre-configured Verified Two-Account Testing Personas
+export const DEMO_CLIENT_CONFIG = {
+  name: 'Client (Sponsor / DAO)',
+  address: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as Address,
+  privateKey: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' as `0x${string}`,
+};
+
+export const DEMO_OPERATOR_CONFIG = {
+  name: 'Agent Operator (Keeper / Bot)',
+  address: '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as Address,
+  privateKey: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' as `0x${string}`,
+};
+
 export interface AgreementState {
   agreement_id: number;
   client: string;
@@ -23,7 +36,7 @@ export interface AgreementState {
   adjudication_verdict: string;
   adjudication_confidence: number;
   adjudication_summary: string;
-  is_finalized: bool;
+  is_finalized: boolean;
 }
 
 export interface ProtocolStats {
@@ -59,6 +72,9 @@ export function getGenLayerClient(
   });
 }
 
+/**
+ * Step 1: Client locks Escrow Fee and creates Agreement bound to committed telemetry.
+ */
 export async function createAgreement(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address,
@@ -90,6 +106,9 @@ export async function createAgreement(
   return txHash as `0x${string}`;
 }
 
+/**
+ * Step 2: Agent Operator signs with Operator key and deposits Collateral Stake.
+ */
 export async function stakeAndActivateAgreement(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address,
@@ -108,38 +127,28 @@ export async function stakeAndActivateAgreement(
   return txHash as `0x${string}`;
 }
 
+/**
+ * Step 3: Trigger Multi-Validator Neural Consensus Adjudication.
+ */
 export async function adjudicateAgentSla(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address,
   agreementId: bigint | number,
   performanceNotes: string,
-  submittedEvidenceUrl: string = ''
+  submittedEvidenceUrl: string
 ): Promise<`0x${string}`> {
   const txHash = await client.writeContract({
     address: contractAddress.toLowerCase() as Address,
     functionName: 'adjudicate_agent_sla',
     args: [BigInt(agreementId), performanceNotes, submittedEvidenceUrl],
-    value: BigInt(0),
   });
 
   return txHash as `0x${string}`;
 }
 
-export async function releaseExpiredAgreement(
-  client: ReturnType<typeof getGenLayerClient>,
-  contractAddress: Address,
-  agreementId: bigint | number
-): Promise<`0x${string}`> {
-  const txHash = await client.writeContract({
-    address: contractAddress.toLowerCase() as Address,
-    functionName: 'release_expired_unclaimed_agreement',
-    args: [BigInt(agreementId)],
-    value: BigInt(0),
-  });
-
-  return txHash as `0x${string}`;
-}
-
+/**
+ * View Agreement State.
+ */
 export async function getAgreement(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address,
@@ -151,9 +160,12 @@ export async function getAgreement(
     args: [BigInt(agreementId)],
   });
 
-  return data as unknown as AgreementState;
+  return data as AgreementState;
 }
 
+/**
+ * View Protocol Stats.
+ */
 export async function getProtocolStats(
   client: ReturnType<typeof getGenLayerClient>,
   contractAddress: Address
@@ -161,8 +173,7 @@ export async function getProtocolStats(
   const data = await client.readContract({
     address: contractAddress.toLowerCase() as Address,
     functionName: 'get_protocol_stats',
-    args: [],
   });
 
-  return data as unknown as ProtocolStats;
+  return data as ProtocolStats;
 }

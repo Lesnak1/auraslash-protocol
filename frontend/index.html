@@ -414,6 +414,25 @@
             <p>Decentralized accountability for Web3 AI agents, DeFi keeper bots, and algorithmic delegates. Multi-validator neural consensus adjudicates live performance telemetry and deterministically slashes collateral bonds upon SLA breaches.</p>
         </div>
 
+        <!-- Verified Two-Account Persona Switcher (Client & Operator) -->
+        <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(0, 245, 160, 0.25); border-radius: 16px; padding: 14px 20px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span style="font-size: 13px; font-weight: 700; color: var(--accent-emerald);">🔑 Active Signing Account:</span>
+                <button class="tab-btn active" id="btnRoleClient" onclick="setSigningPersona('client')" style="padding: 6px 14px; font-size: 12px;">
+                    🏛️ 1. Client (Alice)
+                </button>
+                <button class="tab-btn" id="btnRoleOperator" onclick="setSigningPersona('operator')" style="padding: 6px 14px; font-size: 12px;">
+                    🤖 2. Operator (Bob)
+                </button>
+                <button class="tab-btn" id="btnRoleCustom" onclick="setSigningPersona('custom')" style="padding: 6px 14px; font-size: 12px;">
+                    🔑 Custom Key
+                </button>
+            </div>
+            <div id="personaInfo" style="font-size: 12px; color: #94a3b8;">
+                Role: <b style="color: #fff;" id="activeRoleName">Client (Sponsor / Funder)</b> | Address: <span id="activeRoleAddr" style="font-family: monospace; color: var(--accent-cyan);">0x7099...79C8</span>
+            </div>
+        </div>
+
         <!-- Dashboard Grid -->
         <div class="dashboard-grid">
             <!-- Left Card: Protocol Actions -->
@@ -424,9 +443,9 @@
                 </div>
 
                 <div class="tabs-header">
-                    <button class="tab-btn active" onclick="switchTab('tab-create')">1. Create SLA Escrow</button>
-                    <button class="tab-btn" onclick="switchTab('tab-stake')">2. Stake Collateral</button>
-                    <button class="tab-btn" onclick="switchTab('tab-adjudicate')">3. Adjudicate SLA</button>
+                    <button class="tab-btn active" id="tabBtnCreate" onclick="switchTab('tab-create')">1. Create SLA Escrow</button>
+                    <button class="tab-btn" id="tabBtnStake" onclick="switchTab('tab-stake')">2. Stake Collateral</button>
+                    <button class="tab-btn" id="tabBtnAdj" onclick="switchTab('tab-adjudicate')">3. Adjudicate SLA</button>
                 </div>
 
                 <!-- Tab 1: Create Agreement -->
@@ -570,6 +589,20 @@
 
         let client = null;
         let currentAccount = null;
+        let activePersona = 'client';
+
+        const PERSONAS = {
+            client: {
+                name: 'Client (Sponsor / Funder)',
+                address: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+                privateKey: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+            },
+            operator: {
+                name: 'Agent Operator (Keeper / Staker)',
+                address: '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
+                privateKey: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
+            },
+        };
 
         function addLog(msg, type = 'info') {
             const log = document.getElementById('auditLog');
@@ -588,10 +621,38 @@
             return testnetBradbury;
         }
 
-        function initClient() {
+        window.setSigningPersona = function(personaKey) {
+            activePersona = personaKey;
+            document.querySelectorAll('#btnRoleClient, #btnRoleOperator, #btnRoleCustom').forEach(b => b.classList.remove('active'));
+
+            if (personaKey === 'client') {
+                document.getElementById('btnRoleClient').classList.add('active');
+                initClient(PERSONAS.client.privateKey);
+                document.getElementById('activeRoleName').innerText = PERSONAS.client.name;
+                document.getElementById('activeRoleAddr').innerText = PERSONAS.client.address;
+                document.getElementById('createOperatorAddr').value = PERSONAS.operator.address;
+                addLog('Switched active signing persona to Client (Alice)', 'info');
+            } else if (personaKey === 'operator') {
+                document.getElementById('btnRoleOperator').classList.add('active');
+                initClient(PERSONAS.operator.privateKey);
+                document.getElementById('activeRoleName').innerText = PERSONAS.operator.name;
+                document.getElementById('activeRoleAddr').innerText = PERSONAS.operator.address;
+                addLog('Switched active signing persona to Agent Operator (Bob)', 'info');
+            } else {
+                document.getElementById('btnRoleCustom').classList.add('active');
+                const customKey = prompt('Enter 0x-prefixed private key:');
+                if (customKey && customKey.startsWith('0x')) {
+                    initClient(customKey);
+                    document.getElementById('activeRoleName').innerText = 'Custom Account';
+                    document.getElementById('activeRoleAddr').innerText = currentAccount.address;
+                }
+            }
+        };
+
+        function initClient(privKey = null) {
             try {
                 const chain = getSelectedChain();
-                currentAccount = createAccount(generatePrivateKey());
+                currentAccount = privKey ? createAccount(privKey) : createAccount(PERSONAS.client.privateKey);
                 client = createClient({
                     chain: chain,
                     account: currentAccount,
@@ -610,10 +671,12 @@
         }
 
         window.switchTab = function(tabId) {
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tabs-header .tab-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
             
-            event.target.classList.add('active');
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
             document.getElementById(tabId).classList.add('active');
         };
 
