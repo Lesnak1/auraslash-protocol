@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![GenLayer Network](https://img.shields.io/badge/GenLayer-Intelligent%20Contract-00f2fe.svg)](https://docs.genlayer.com)
 [![GenVM Python](https://img.shields.io/badge/GenVM-py--genlayer%20v0.2.7-8a2be2.svg)](https://github.com/genlayerlabs)
-[![Tests: Direct Mode](https://img.shields.io/badge/Tests-Direct%20VM%20Passing%20(7%2F7)-00f5a0.svg)](#-test-suite--verification)
+[![Tests: Direct Mode](https://img.shields.io/badge/Tests-Direct%20VM%20Passing%20(9%2F9)-00f5a0.svg)](#-test-suite--verification)
 
 **AuraSlash** is a decentralized, intelligent SLA escrow and behavioral slashing protocol built natively on GenLayer. It solves the existential accountability crisis facing autonomous Web3 AI agents, keeper bots, and algorithmic delegates by conditioning service fee payouts and collateral slashing on **decentralized multi-validator neural consensus over live authority telemetry** (DexScreener DEX trades, GitHub task deliveries, BaseScan/Etherscan contract calls, and DefiLlama analytics).
 
@@ -20,7 +20,8 @@ As DAOs and protocols increasingly hire off-chain AI agents to manage liquidity 
 GenLayer provides the only environment capable of trustlessly evaluating off-chain AI agent behavior:
 1. **Live Authority Telemetry Grounding (`gl.nondet.web.get`)**: Validators independently retrieve real-time execution proof from whitelisted endpoints (DexScreener, GitHub API, BaseScan, DefiLlama).
 2. **Multi-Validator Neural Consensus (`gl.vm.run_nondet_unsafe`)**: Validators analyze telemetry against contracted SLA bounds under the **Equivalence Principle** with strict canonical action decisions.
-3. **Deterministic Slashing & Exact Payout Preservation**: Slashes the agent's collateral bond upon proven SLA breach or awards the escrow fee upon proven fulfillment with zero financial drift.
+3. **Deterministic Slashing & Exact Payout Preservation**: Slashes the agent's collateral bond only upon verified affirmative proof of breach (confidence >= 80) or awards the escrow fee upon verified fulfillment with zero financial drift.
+4. **404 & Network Failure Retry Protection**: HTTP 404s, missing endpoints, or server errors are strictly treated as retry outcomes (`EXTEND_GRACE_PERIOD`), NEVER as grounds for slashing.
 
 ---
 
@@ -31,8 +32,8 @@ To eliminate numeric drift and ambiguous threshold crossings, AuraSlash enforces
 | Canonical Action Decision | Validation Criteria | On-Chain Execution |
 |---|---|---|
 | **`RELEASE_ESCROW`** | `sla_verified == True` AND `confidence_score >= 80` | Releases escrow fee + collateral refund to Agent Operator (`emit_transfer(escrow + collateral)`) |
-| **`SLASH_COLLATERAL`** | Verified SLA breach / hallucination / risk violation | Slashes agent collateral + refunds escrow fee to Client (`emit_transfer(escrow + collateral)`) |
-| **`EXTEND_GRACE_PERIOD`** | Deliverable in progress (`confidence_score < 80`) | Agreement remains active for retry; zero funds released |
+| **`SLASH_COLLATERAL`** | Verified affirmative SLA breach / risk violation AND `confidence_score >= 80` | Slashes agent collateral + refunds escrow fee to Client (`emit_transfer(escrow + collateral)`) |
+| **`EXTEND_GRACE_PERIOD`** | Deliverable in progress, HTTP 404s, network errors, or sub-threshold confidence (`confidence < 80`) | Agreement remains active for retry; zero funds released |
 
 ### Key Security & Solvency Invariants:
 1. **🗓️ Fail-Closed Runtime Block Timing**: Timestamps are strictly derived from enforceable GenLayer runtime block state (`_get_runtime_timestamp()`). Unavailable timestamps strictly fail closed.

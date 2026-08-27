@@ -309,10 +309,10 @@ class AuraSlash(gl.Contract):
                     code = int(http_status)
                     if code < 200 or code >= 300:
                         return {
-                            "action_decision": "SLASH_COLLATERAL" if code == 404 else "EXTEND_GRACE_PERIOD",
+                            "action_decision": "EXTEND_GRACE_PERIOD",
                             "confidence_score": 0,
                             "sla_verified": False,
-                            "summary": f"[EXTERNAL] Authority telemetry endpoint returned non-success HTTP status {code}.",
+                            "summary": f"[EXTERNAL] Authority telemetry endpoint returned HTTP status {code}; treated as retry outcome without moving funds.",
                         }
                 except (ValueError, TypeError):
                     pass
@@ -331,7 +331,7 @@ class AuraSlash(gl.Contract):
                     "action_decision": "EXTEND_GRACE_PERIOD",
                     "confidence_score": 0,
                     "sla_verified": False,
-                    "summary": "[EXTERNAL] Authority endpoint returned empty telemetry data.",
+                    "summary": "[EXTERNAL] Authority endpoint returned empty telemetry data; held for retry.",
                 }
 
             prompt = f"""
@@ -352,9 +352,9 @@ class AuraSlash(gl.Contract):
             Evaluate the agent's behavior and choose exactly ONE of the 3 canonical action decisions:
             1. "action_decision":
                - "RELEASE_ESCROW": Telemetry strictly proves the agent met or exceeded all SLA requirements without risk limit violations.
-               - "SLASH_COLLATERAL": Telemetry proves active SLA breach, catastrophic risk violation, unauthorized drain/hallucination, or roadmap abandonment.
-               - "EXTEND_GRACE_PERIOD": Progress is demonstrated or temporary external delay occurred, but performance data is incomplete; holds funds for retry.
-            2. "confidence_score": Integer 0 to 100.
+               - "SLASH_COLLATERAL": Telemetry proves verified affirmative SLA breach, catastrophic risk violation, unauthorized drain/hallucination, or roadmap abandonment with high confidence. (HTTP 404s/network errors are NEVER slashed and must be EXTEND_GRACE_PERIOD).
+               - "EXTEND_GRACE_PERIOD": Progress is demonstrated or temporary external delay/404 occurred, but performance data is incomplete; holds funds for retry without moving any escrow.
+            2. "confidence_score": Integer 0 to 100. (Must be >= 80 to trigger any release or slash).
             3. "sla_verified": Boolean true if and only if SLA was fully achieved, false otherwise.
             4. "summary": Concise 1-2 sentence technical assessment.
 
@@ -389,8 +389,17 @@ class AuraSlash(gl.Contract):
                     "action_decision": "EXTEND_GRACE_PERIOD",
                     "confidence_score": 0,
                     "sla_verified": False,
-                    "summary": "[LLM_ERROR] LLM adjudicator returned non-JSON output format.",
+                    "summary": "[LLM_ERROR] LLM adjudicator returned non-JSON output format; held for retry.",
                 }
+
+            # Enforce Meaningful Confidence Floor:
+            # Any decision to RELEASE_ESCROW or SLASH_COLLATERAL with confidence < 80 is strictly normalized
+            # to EXTEND_GRACE_PERIOD to prevent premature fund transfers on uncertain evidence
+            action_dec = str(analysis.get("action_decision", "EXTEND_GRACE_PERIOD"))
+            conf_score = int(analysis.get("confidence_score", 0))
+            if action_dec in ["RELEASE_ESCROW", "SLASH_COLLATERAL"] and conf_score < CONFIDENCE_THRESHOLD:
+                analysis["action_decision"] = "EXTEND_GRACE_PERIOD"
+                analysis["summary"] = f"[EXPECTED] Sub-threshold confidence ({conf_score}% < {CONFIDENCE_THRESHOLD}%); held for retry without slashing or releasing escrow."
 
             return analysis
 
@@ -416,6 +425,10 @@ class AuraSlash(gl.Contract):
 
             # RELEASE_ESCROW requires confidence >= 80 and sla_verified == True
             if lead_action == "RELEASE_ESCROW" and (lead_conf < CONFIDENCE_THRESHOLD or not lead_verified):
+                return False
+
+            # SLASH_COLLATERAL requires confidence >= 80 and sla_verified == False (affirmative proof of breach)
+            if lead_action == "SLASH_COLLATERAL" and (lead_conf < CONFIDENCE_THRESHOLD or lead_verified):
                 return False
 
             val = leader_fn()
@@ -455,7 +468,7 @@ class AuraSlash(gl.Contract):
 
         total_funds = escrow_val + collateral_val
 
-        # Deterministic Settlement Gate (Exact Payout Preservation)
+        # Deterministic Settlement Gate (Exact Payout Preservation with Confidence Floor)
         if action == "RELEASE_ESCROW" and conf >= u32(CONFIDENCE_THRESHOLD):
             agreement.status = "RELEASED"
             agreement.is_finalized = True
@@ -468,7 +481,7 @@ class AuraSlash(gl.Contract):
             # Release Escrow Fee + Collateral Refund to Agent Operator
             _Recipient(agreement.agent_operator).emit_transfer(value=total_funds)
 
-        elif action == "SLASH_COLLATERAL":
+        elif action == "SLASH_COLLATERAL" and conf >= u32(CONFIDENCE_THRESHOLD):
             agreement.status = "SLASHED"
             agreement.is_finalized = True
 
@@ -481,7 +494,7 @@ class AuraSlash(gl.Contract):
             _Recipient(agreement.client).emit_transfer(value=total_funds)
 
         else:
-            # EXTEND_GRACE_PERIOD: Agreement remains active for retry
+            # EXTEND_GRACE_PERIOD or sub-threshold confidence: Agreement remains active for subsequent retry, 0 funds moved
             agreement.status = "ACTIVE"
             agreement.is_finalized = False
 
