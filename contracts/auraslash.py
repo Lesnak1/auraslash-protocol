@@ -290,7 +290,7 @@ class AuraSlash(gl.Contract):
                     "action_decision": "EXTEND_GRACE_PERIOD",
                     "confidence_score": 0,
                     "sla_verified": False,
-                    "summary": f"Authority telemetry fetch failed with network error: {str(e)[:100]}",
+                    "summary": f"[EXTERNAL] Authority telemetry fetch failed with network error: {str(e)[:100]}",
                 }
 
             # Strict Fetch Success Validation (Fail Closed): Must return explicit HTTP 200-299 status
@@ -312,7 +312,7 @@ class AuraSlash(gl.Contract):
                             "action_decision": "SLASH_COLLATERAL" if code == 404 else "EXTEND_GRACE_PERIOD",
                             "confidence_score": 0,
                             "sla_verified": False,
-                            "summary": f"Authority telemetry endpoint returned non-success HTTP status {code}.",
+                            "summary": f"[EXTERNAL] Authority telemetry endpoint returned non-success HTTP status {code}.",
                         }
                 except (ValueError, TypeError):
                     pass
@@ -331,7 +331,7 @@ class AuraSlash(gl.Contract):
                     "action_decision": "EXTEND_GRACE_PERIOD",
                     "confidence_score": 0,
                     "sla_verified": False,
-                    "summary": "Authority endpoint returned empty telemetry data.",
+                    "summary": "[EXTERNAL] Authority endpoint returned empty telemetry data.",
                 }
 
             prompt = f"""
@@ -366,9 +366,32 @@ class AuraSlash(gl.Contract):
                 "summary": "string"
             }}
             """
-            analysis = gl.nondet.exec_prompt(prompt, response_format="json")
+            raw_eval = gl.nondet.exec_prompt(prompt, response_format="json")
+
+            # Defensive JSON Sanitization & Parsing
+            analysis = None
+            if isinstance(raw_eval, dict):
+                analysis = raw_eval
+            elif isinstance(raw_eval, str):
+                cleaned = raw_eval.strip()
+                if cleaned.startswith("```"):
+                    cleaned = cleaned.split("```")[1]
+                    if cleaned.startswith("json"):
+                        cleaned = cleaned[4:]
+                    cleaned = cleaned.strip()
+                try:
+                    analysis = json.loads(cleaned)
+                except Exception:
+                    pass
+
             if not isinstance(analysis, dict):
-                raise gl.vm.UserError("Adjudicator must return a JSON dictionary.")
+                return {
+                    "action_decision": "EXTEND_GRACE_PERIOD",
+                    "confidence_score": 0,
+                    "sla_verified": False,
+                    "summary": "[LLM_ERROR] LLM adjudicator returned non-JSON output format.",
+                }
+
             return analysis
 
         def validator_fn(leaders_res: gl.vm.Result) -> bool:
