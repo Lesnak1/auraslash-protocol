@@ -209,6 +209,7 @@ def test_emergency_early_slashing_on_catastrophic_breach(
             "action_decision": "SLASH_COLLATERAL",
             "confidence_score": 98,
             "sla_verified": False,
+            "is_catastrophic_emergency": True,
             "summary": "Agent breached maximum drawdown constraint (8.4% observed vs 3.0% contracted threshold), triggering severe pool losses. Emergency collateral slash approved.",
         }),
     )
@@ -229,6 +230,74 @@ def test_emergency_early_slashing_on_catastrophic_breach(
 
     stats = contract.get_protocol_stats()
     assert stats["total_active_liabilities"] == "0"
+
+
+def test_non_catastrophic_shortfall_mid_window_is_held_in_grace_period_and_never_slashes_early(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    """
+    Steward Verification Test (Gen. Dave):
+    Verifies that a standard, non-catastrophic performance shortfall detected mid-window
+    (is_catastrophic_emergency == False) is strictly held in EXTEND_GRACE_PERIOD and NEVER
+    slashed early, leaving the agreement active with zero funds moved so the operator
+    can recover over the contracted observation window.
+    """
+    contract = direct_deploy("contracts/auraslash.py")
+
+    direct_vm.sender = direct_alice
+    direct_vm.value = 50 * 10**18
+    committed_url = "https://api.dexscreener.com/latest/dex/pairs/base/0x4444444444444444444444444444444444444444"
+
+    agr_id = contract.create_agreement(
+        str(direct_bob),
+        "DEFI_KEEPER_BOT",
+        "Maintain 99.5% uptime and max 0.5% slippage.",
+        committed_url,
+        20 * 10**18,
+        604800,  # 7 days
+    )
+
+    direct_vm.sender = direct_bob
+    direct_vm.value = 20 * 10**18
+    contract.stake_and_activate_agreement(agr_id)
+
+    # Telemetry shows minor sub-par performance (98.2% uptime vs 99.5% target) on Day 2 of 7
+    direct_vm.mock_web(
+        r".*",
+        {
+            "status": 200,
+            "body": json.dumps({
+                "uptime_percentage": 98.2,
+                "max_observed_slippage": 0.55,
+                "status": "TEMPORARY_LATENCY",
+            }),
+        },
+    )
+
+    # LLM outputs non-catastrophic breach (is_catastrophic_emergency: False)
+    direct_vm.mock_llm(
+        r".*",
+        json.dumps({
+            "action_decision": "SLASH_COLLATERAL",
+            "confidence_score": 85,
+            "sla_verified": False,
+            "is_catastrophic_emergency": False,
+            "summary": "Agent uptime is slightly under 99.5% target due to temporary network latency.",
+        }),
+    )
+
+    # Client triggers check mid-window
+    direct_vm.sender = direct_alice
+    contract.adjudicate_agent_sla(agr_id, "Mid-term check on Day 2", committed_url)
+
+    a = contract.get_agreement(agr_id)
+    assert a["status"] == "ACTIVE", "Non-catastrophic shortfall mid-window must NOT slash early"
+    assert a["is_finalized"] is False, "Agreement must remain active"
+    assert a["adjudication_verdict"] == "EXTEND_GRACE_PERIOD"
+    assert "[OBSERVATION_ACTIVE]" in a["adjudication_summary"]
+
+    stats = contract.get_protocol_stats()
+    assert stats["total_active_liabilities"] == str(70 * 10**18), "Zero funds moved on mid-window non-catastrophic check"
 
 
 def test_repeated_404_responses_leave_agreement_active_and_move_no_funds(
@@ -479,3 +548,109 @@ def test_non_operator_stake_reverts(
 
     with direct_vm.expect_revert("Only the designated agent operator can deposit collateral stake."):
         contract.stake_and_activate_agreement(agr_id)
+
+
+def test_missing_or_malformed_http_status_strictly_forces_retry_and_never_slashes(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    """
+    Steward Verification Test (Gen. Dave):
+    Proves that a missing or malformed HTTP response status (e.g. status: None, status: 'invalid')
+    strictly terminates before LLM adjudication and returns EXTEND_GRACE_PERIOD (retry outcome),
+    preventing any high-confidence slash or unauthorized escrow transfer.
+    """
+    contract = direct_deploy("contracts/auraslash.py")
+
+    direct_vm.sender = direct_alice
+    direct_vm.value = 50 * 10**18
+    committed_url = "https://api.dexscreener.com/latest/dex/pairs/base/0x8888888888888888888888888888888888888888"
+
+    agr_id = contract.create_agreement(
+        str(direct_bob),
+        "DEFI_KEEPER_BOT",
+        "Maintain 99.5% uptime",
+        committed_url,
+        20 * 10**18,
+        604800,
+    )
+
+    direct_vm.sender = direct_bob
+    direct_vm.value = 20 * 10**18
+    contract.stake_and_activate_agreement(agr_id)
+
+    expected_liabilities = str(70 * 10**18)
+
+    # Case A: Missing status (status is None)
+    direct_vm.mock_web(
+        r".*",
+        {"body": "Corrupted response without HTTP status code"},
+    )
+    direct_vm.sender = direct_alice
+    contract.adjudicate_agent_sla(agr_id, "Attempt with missing status", committed_url)
+
+    a_missing = contract.get_agreement(agr_id)
+    assert a_missing["status"] == "ACTIVE"
+    assert a_missing["is_finalized"] is False
+    assert a_missing["adjudication_verdict"] == "EXTEND_GRACE_PERIOD"
+    assert a_missing["adjudication_confidence"] == 0
+    assert "Missing HTTP response status" in a_missing["adjudication_summary"]
+    assert contract.get_protocol_stats()["total_active_liabilities"] == expected_liabilities
+
+    # Case B: Malformed status (status is non-integer string)
+    direct_vm.mock_web(
+        r".*",
+        {"status": "invalid_status", "body": "Non-integer status string"},
+    )
+    direct_vm.sender = direct_bob
+    contract.adjudicate_agent_sla(agr_id, "Attempt with malformed status", committed_url)
+
+    a_malformed = contract.get_agreement(agr_id)
+    assert a_malformed["status"] == "ACTIVE"
+    assert a_malformed["is_finalized"] is False
+    assert a_malformed["adjudication_verdict"] == "EXTEND_GRACE_PERIOD"
+    assert a_malformed["adjudication_confidence"] == 0
+    assert "Malformed HTTP response status" in a_malformed["adjudication_summary"]
+    assert contract.get_protocol_stats()["total_active_liabilities"] == expected_liabilities
+
+
+def test_null_or_empty_body_strictly_forces_retry_and_never_slashes(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    """
+    Test that null/missing or whitespace-only response bodies strictly return EXTEND_GRACE_PERIOD
+    and never slash.
+    """
+    contract = direct_deploy("contracts/auraslash.py")
+
+    direct_vm.sender = direct_alice
+    direct_vm.value = 50 * 10**18
+    committed_url = "https://api.dexscreener.com/latest/dex/pairs/base/0x8888888888888888888888888888888888888888"
+
+    agr_id = contract.create_agreement(
+        str(direct_bob),
+        "DEFI_KEEPER_BOT",
+        "Maintain 99.5% uptime",
+        committed_url,
+        20 * 10**18,
+        604800,
+    )
+
+    direct_vm.sender = direct_bob
+    direct_vm.value = 20 * 10**18
+    contract.stake_and_activate_agreement(agr_id)
+
+    # Mock HTTP 200 with null body
+    direct_vm.mock_web(
+        r".*",
+        {"status": 200, "body": None},
+    )
+    direct_vm.sender = direct_alice
+    contract.adjudicate_agent_sla(agr_id, "Attempt with null body", committed_url)
+
+    a_null = contract.get_agreement(agr_id)
+    assert a_null["status"] == "ACTIVE"
+    assert a_null["is_finalized"] is False
+    assert a_null["adjudication_verdict"] == "EXTEND_GRACE_PERIOD"
+    assert a_null["adjudication_confidence"] == 0
+    assert "null/missing body data" in a_null["adjudication_summary"]
+

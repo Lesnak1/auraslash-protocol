@@ -45,8 +45,8 @@ class MockDirectVM:
             if pat.search(url):
                 class WebResponse:
                     def __init__(self, d):
-                        self.status = d.get("status", 200)
-                        self.status_code = self.status
+                        self.status = d.get("status", None)
+                        self.status_code = d.get("status_code", self.status)
                         b = d.get("body", "")
                         self.body = b.encode("utf-8") if isinstance(b, str) else b
                 return WebResponse(resp)

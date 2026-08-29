@@ -298,44 +298,75 @@ class AuraSlash(gl.Contract):
                     "summary": f"[EXTERNAL] Authority telemetry fetch failed with network error: {str(e)[:100]}",
                 }
 
-            # Strict Fetch Success Validation (Fail Closed): Must return explicit HTTP 200-299 status
+            # Strict Fetch Success Validation (Fail Closed): Must return a valid, explicit HTTP 200-299 status code.
+            # Any missing, non-integer, malformed, 404, 500, or non-2xx status code is strictly treated as a retry outcome (EXTEND_GRACE_PERIOD),
+            # immediately terminating execution before reaching LLM adjudication and moving zero funds.
             http_status = None
             if hasattr(res, "status") and res.status is not None:
                 http_status = res.status
             elif hasattr(res, "status_code") and res.status_code is not None:
                 http_status = res.status_code
-            elif isinstance(res, dict) and "status" in res:
+            elif isinstance(res, dict) and "status" in res and res["status"] is not None:
                 http_status = res["status"]
-            elif isinstance(res, dict) and "status_code" in res:
+            elif isinstance(res, dict) and "status_code" in res and res["status_code"] is not None:
                 http_status = res["status_code"]
 
-            if http_status is not None:
-                try:
-                    code = int(http_status)
-                    if code < 200 or code >= 300:
-                        return {
-                            "action_decision": "EXTEND_GRACE_PERIOD",
-                            "confidence_score": 0,
-                            "sla_verified": False,
-                            "summary": f"[EXTERNAL] Authority telemetry endpoint returned HTTP status {code}; treated as retry outcome without moving funds.",
-                        }
-                except (ValueError, TypeError):
-                    pass
+            # Fail Closed: Missing HTTP status cannot proceed into LLM adjudication
+            if http_status is None:
+                return {
+                    "action_decision": "EXTEND_GRACE_PERIOD",
+                    "confidence_score": 0,
+                    "sla_verified": False,
+                    "is_catastrophic_emergency": False,
+                    "summary": "[EXTERNAL] Missing HTTP response status from authority endpoint; treated as retry outcome without moving funds.",
+                }
+
+            # Fail Closed: Malformed / non-integer HTTP status cannot proceed into LLM adjudication
+            try:
+                code = int(http_status)
+            except (ValueError, TypeError):
+                return {
+                    "action_decision": "EXTEND_GRACE_PERIOD",
+                    "confidence_score": 0,
+                    "sla_verified": False,
+                    "is_catastrophic_emergency": False,
+                    "summary": f"[EXTERNAL] Malformed HTTP response status '{http_status}'; treated as retry outcome without moving funds.",
+                }
+
+            # Fail Closed: 404s, 500s, and non-2xx status codes strictly force retry
+            if code < 200 or code >= 300:
+                return {
+                    "action_decision": "EXTEND_GRACE_PERIOD",
+                    "confidence_score": 0,
+                    "sla_verified": False,
+                    "is_catastrophic_emergency": False,
+                    "summary": f"[EXTERNAL] Authority telemetry endpoint returned HTTP status {code}; treated as retry outcome without moving funds.",
+                }
 
             raw_body = getattr(res, "body", None)
             if raw_body is None and isinstance(res, dict):
-                raw_body = res.get("body", "")
+                raw_body = res.get("body", None)
+
+            if raw_body is None:
+                return {
+                    "action_decision": "EXTEND_GRACE_PERIOD",
+                    "confidence_score": 0,
+                    "sla_verified": False,
+                    "is_catastrophic_emergency": False,
+                    "summary": "[EXTERNAL] Authority endpoint returned null/missing body data; held for retry.",
+                }
 
             if isinstance(raw_body, bytes):
                 telemetry_data = raw_body.decode("utf-8", errors="replace")[:3000]
             else:
-                telemetry_data = str(raw_body or res)[:3000]
+                telemetry_data = str(raw_body)[:3000]
 
             if not telemetry_data.strip():
                 return {
                     "action_decision": "EXTEND_GRACE_PERIOD",
                     "confidence_score": 0,
                     "sla_verified": False,
+                    "is_catastrophic_emergency": False,
                     "summary": "[EXTERNAL] Authority endpoint returned empty telemetry data; held for retry.",
                 }
 
@@ -365,13 +396,15 @@ class AuraSlash(gl.Contract):
                - "EXTEND_GRACE_PERIOD": Progress is demonstrated or temporary external delay/404 occurred, or observation window is still active; holds funds for retry without moving any escrow.
             2. "confidence_score": Integer 0 to 100. (Must be >= 80 to trigger any release or slash).
             3. "sla_verified": Boolean true if and only if SLA was fully achieved, false otherwise.
-            4. "summary": Concise 1-2 sentence technical assessment.
+            4. "is_catastrophic_emergency": Boolean true ONLY if telemetry proves an existential security breach (unauthorized asset drain, private key theft, or severe catastrophic drawdown); false for normal performance shortfall, temporary delay, or healthy execution.
+            5. "summary": Concise 1-2 sentence technical assessment.
 
             Respond ONLY with a valid JSON object matching this schema:
             {{
                 "action_decision": "RELEASE_ESCROW"|"SLASH_COLLATERAL"|"EXTEND_GRACE_PERIOD",
                 "confidence_score": int,
                 "sla_verified": bool,
+                "is_catastrophic_emergency": bool,
                 "summary": "string"
             }}
             """
@@ -398,22 +431,30 @@ class AuraSlash(gl.Contract):
                     "action_decision": "EXTEND_GRACE_PERIOD",
                     "confidence_score": 0,
                     "sla_verified": False,
+                    "is_catastrophic_emergency": False,
                     "summary": "[LLM_ERROR] LLM adjudicator returned non-JSON output format; held for retry.",
                 }
 
             # Enforce Meaningful Confidence Floor:
             action_dec = str(analysis.get("action_decision", "EXTEND_GRACE_PERIOD"))
             conf_score = int(analysis.get("confidence_score", 0))
+            is_emergency = bool(analysis.get("is_catastrophic_emergency", False))
+
             if action_dec in ["RELEASE_ESCROW", "SLASH_COLLATERAL"] and conf_score < CONFIDENCE_THRESHOLD:
                 analysis["action_decision"] = "EXTEND_GRACE_PERIOD"
                 analysis["summary"] = f"[EXPECTED] Sub-threshold confidence ({conf_score}% < {CONFIDENCE_THRESHOLD}%); held for retry without slashing or releasing escrow."
 
-            # Observation Window Completion Guard:
-            # Irreversible escrow fee payout (RELEASE_ESCROW) requires the full SLA observation window to have elapsed.
-            # If evaluated mid-term while healthy, it is held in EXTEND_GRACE_PERIOD until the contracted duration concludes.
+            # Observation Window Completion Guard on BOTH Release and Slashing:
+            # 1. RELEASE_ESCROW strictly requires the full observation window to have concluded (is_observation_complete == True).
+            # 2. SLASH_COLLATERAL during an active mid-window (is_observation_complete == False) is ONLY allowed if is_catastrophic_emergency == True and confidence >= 90.
+            #    Otherwise, standard/non-catastrophic SLA shortfalls detected mid-window are held in EXTEND_GRACE_PERIOD to allow the agent operator to recover over the contracted observation window.
             if action_dec == "RELEASE_ESCROW" and not is_observation_complete:
                 analysis["action_decision"] = "EXTEND_GRACE_PERIOD"
                 analysis["summary"] = f"[OBSERVATION_ACTIVE] Agent performance is currently healthy, but the contracted observation window is still active ({time_remaining}s remaining). Agreement remains ACTIVE until full term."
+
+            if action_dec == "SLASH_COLLATERAL" and not is_observation_complete and not (is_emergency and conf_score >= 90):
+                analysis["action_decision"] = "EXTEND_GRACE_PERIOD"
+                analysis["summary"] = f"[OBSERVATION_ACTIVE] Performance shortfall detected mid-window, but no catastrophic emergency exists ({time_remaining}s remaining). Agreement held in EXTEND_GRACE_PERIOD allowing operator to recover."
 
             return analysis
 
@@ -433,6 +474,7 @@ class AuraSlash(gl.Contract):
             lead_action = str(lead.get("action_decision", ""))
             lead_conf = int(lead.get("confidence_score", 0))
             lead_verified = bool(lead.get("sla_verified", False))
+            lead_emergency = bool(lead.get("is_catastrophic_emergency", False))
 
             if lead_action not in VALID_CANONICAL_ACTIONS:
                 return False
@@ -442,13 +484,18 @@ class AuraSlash(gl.Contract):
                 return False
 
             # SLASH_COLLATERAL requires confidence >= 80 and sla_verified == False (affirmative proof of breach)
-            if lead_action == "SLASH_COLLATERAL" and (lead_conf < CONFIDENCE_THRESHOLD or lead_verified):
-                return False
+            # If evaluated mid-window, it strictly requires verified catastrophic emergency with confidence >= 90
+            if lead_action == "SLASH_COLLATERAL":
+                if lead_conf < CONFIDENCE_THRESHOLD or lead_verified:
+                    return False
+                if not is_observation_complete and (not lead_emergency or lead_conf < 90):
+                    return False
 
             val = leader_fn()
             val_action = str(val.get("action_decision", ""))
             val_conf = int(val.get("confidence_score", 0))
             val_verified = bool(val.get("sla_verified", False))
+            val_emergency = bool(val.get("is_catastrophic_emergency", False))
 
             # 1. Canonical action decision must match exactly
             if lead_action != val_action:
@@ -458,13 +505,17 @@ class AuraSlash(gl.Contract):
             if lead_verified != val_verified:
                 return False
 
-            # 3. Strict Non-Crossing Boundary Constraint: Leader and validator cannot cross 80% threshold
+            # 3. Emergency classification must agree
+            if lead_emergency != val_emergency:
+                return False
+
+            # 4. Strict Non-Crossing Boundary Constraint: Leader and validator cannot cross 80% threshold
             lead_crosses = lead_conf >= CONFIDENCE_THRESHOLD
             val_crosses = val_conf >= CONFIDENCE_THRESHOLD
             if lead_crosses != val_crosses:
                 return False
 
-            # 4. Within-bucket tolerance is ±6 points
+            # 5. Within-bucket tolerance is ±6 points
             if abs(lead_conf - val_conf) > 6:
                 return False
 
@@ -475,6 +526,7 @@ class AuraSlash(gl.Contract):
         action = str(verdict.get("action_decision", "EXTEND_GRACE_PERIOD"))
         conf = u32(int(verdict.get("confidence_score", 0)))
         summary_str = str(verdict.get("summary", ""))
+        is_catastrophic = bool(verdict.get("is_catastrophic_emergency", False))
 
         agreement.adjudication_confidence = conf
         agreement.adjudication_summary = summary_str
@@ -482,8 +534,14 @@ class AuraSlash(gl.Contract):
 
         total_funds = escrow_val + collateral_val
 
-        # Deterministic Settlement Gate (Observation Window Enforced with Constrained Early Slashing)
-        if action == "RELEASE_ESCROW" and conf >= u32(CONFIDENCE_THRESHOLD) and is_observation_complete:
+        # Deterministic Settlement Gate:
+        # 1. Escrow release requires observation window completion
+        # 2. Slashing requires observation window completion OR an explicitly verified catastrophic emergency (conf >= 90)
+        is_emergency_slash = is_catastrophic and conf >= u32(90)
+        can_release = (action == "RELEASE_ESCROW") and (conf >= u32(CONFIDENCE_THRESHOLD)) and is_observation_complete
+        can_slash = (action == "SLASH_COLLATERAL") and (conf >= u32(CONFIDENCE_THRESHOLD)) and (is_observation_complete or is_emergency_slash)
+
+        if can_release:
             agreement.status = "RELEASED"
             agreement.is_finalized = True
 
@@ -495,8 +553,8 @@ class AuraSlash(gl.Contract):
             # Release Escrow Fee + Collateral Refund to Agent Operator
             _Recipient(agreement.agent_operator).emit_transfer(value=total_funds)
 
-        elif action == "SLASH_COLLATERAL" and conf >= u32(CONFIDENCE_THRESHOLD):
-            # Constrained Early Slashing: Catastrophic breach / risk limit violations trigger immediate slashing even mid-window to protect client capital
+        elif can_slash:
+            # Slashing finalized upon window completion or verified catastrophic emergency
             agreement.status = "SLASHED"
             agreement.is_finalized = True
 
